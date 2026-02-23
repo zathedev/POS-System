@@ -1,11 +1,72 @@
 import React, { useState, useEffect } from "react";
 import { db } from "../../Config/Firebaseconfig";
 import { collection, onSnapshot, deleteDoc, doc, updateDoc } from "firebase/firestore";
-import { 
-  Edit3, Trash2, Search, AlertTriangle, Package, X, 
-  CheckCircle, Ban, Layers, ChevronDown, DollarSign, 
+import {
+  Edit3, Trash2, Search, AlertTriangle, Package, X,
+  CheckCircle, Ban, Layers, ChevronDown, DollarSign,
   TrendingUp, ArrowUpRight, Barcode, Tag
 } from "lucide-react";
+import * as yup from "yup";
+
+/* Yup Validation Schema */
+const editProductSchema = yup.object({
+  name: yup
+    .string()
+    .trim()
+    .min(3, "Product name must be at least 3 characters")
+    .required("Product name is required"),
+
+  category: yup
+    .string()
+    .required("Category is required"),
+
+  sku: yup
+    .string()
+    .trim()
+    .required("SKU / Barcode is required"),
+
+  costPrice: yup
+    .number()
+    .transform((v, o) => (o === "" ? undefined : v))
+    .typeError("Cost price must be a number")
+    .min(0, "Cost price cannot be negative")
+    .required("Cost price is required"),
+
+  sellingPrice: yup
+    .number()
+    .transform((v, o) => (o === "" ? undefined : v))
+    .typeError("Selling price must be a number")
+    .min(0, "Selling price cannot be negative")
+    .required("Selling price is required")
+    .test(
+      "is-greater",
+      "Selling price must be greater than cost price",
+      function (value) {
+        const { costPrice } = this.parent;
+        if (value === undefined || costPrice === undefined) return true;
+        return value > costPrice;
+      }
+    ),
+
+  stock: yup
+    .number()
+    .transform((v, o) => (o === "" ? undefined : v))
+    .typeError("Stock must be a number")
+    .integer("Stock must be a whole number")
+    .min(0, "Stock cannot be negative")
+    .required("Stock is required"),
+
+  notifyQuantity: yup
+    .number()
+    .typeError("Notify quantity must be a number")
+    .integer("Notify quantity must be a whole number")
+    .min(0, "Notify quantity cannot be negative")
+    .required("Notify quantity is required")
+    .max(
+      yup.ref("stock"),
+      "Notify quantity cannot be greater than available stock"
+    ),
+});
 
 const Inventory = () => {
   const [products, setProducts] = useState([]);
@@ -13,6 +74,7 @@ const Inventory = () => {
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [editingProduct, setEditingProduct] = useState(null);
   const [editFormData, setEditFormData] = useState({});
+  const [editErrors, setEditErrors] = useState({});
 
   const categories = ["All", "General", "Food", "Beverage", "Electronics"];
 
@@ -38,16 +100,34 @@ const Inventory = () => {
 
   const handleUpdate = async (e) => {
     e.preventDefault();
+
     try {
-      const productRef = doc(db, "products", editingProduct);
-      await updateDoc(productRef, {
-        ...editFormData,
-        stock: Number(editFormData.stock),
-        sellingPrice: Number(editFormData.sellingPrice),
-        costPrice: Number(editFormData.costPrice)
+      const validatedData = await editProductSchema.validate(editFormData, {
+        abortEarly: false,
       });
+
+      const productRef = doc(db, "products", editingProduct);
+
+      await updateDoc(productRef, {
+        ...validatedData,
+        stock: Number(validatedData.stock),
+        sellingPrice: Number(validatedData.sellingPrice),
+        notifyQuantity: Number(validatedData.notifyQuantity),
+        costPrice: Number(validatedData.costPrice),
+      });
+
+      setEditErrors({});
       setEditingProduct(null);
-    } catch (error) { console.error(error); }
+
+    } catch (err) {
+      if (err.inner) {
+        const formattedErrors = {};
+        err.inner.forEach((error) => {
+          formattedErrors[error.path] = error.message;
+        });
+        setEditErrors(formattedErrors);
+      }
+    }
   };
 
   const handleDelete = async (id) => {
@@ -64,21 +144,21 @@ const Inventory = () => {
 
   return (
     <div className="p-6 md:p-12 bg-[#F8FAFC] min-h-screen font-sans text-slate-900">
-      
+
       {/* --- ELITE HEADER --- */}
       <div className="flex flex-col md:flex-row justify-between items-start mb-10 gap-6">
         <div>
           <h1 className="text-4xl font-black tracking-tight text-slate-950">Inventory <span className="text-blue-600">Master</span></h1>
           <p className="text-slate-400 font-bold text-xs uppercase tracking-[0.3em] mt-1">Global Stock Registry 2026</p>
         </div>
-        
+
         <div className="flex items-center gap-4 bg-white px-8 py-4 rounded-[2rem] shadow-sm border border-slate-100">
           <div className="text-right border-r border-slate-100 pr-6">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Assets</p>
             <p className="text-2xl font-black">{stats.total}</p>
           </div>
           <div className="pl-2">
-             <div className="bg-blue-50 text-blue-600 p-3 rounded-2xl"><Package size={20}/></div>
+            <div className="bg-blue-50 text-blue-600 p-3 rounded-2xl"><Package size={20} /></div>
           </div>
         </div>
       </div>
@@ -87,14 +167,14 @@ const Inventory = () => {
       <div className="flex flex-col md:flex-row gap-4 mb-8">
         <div className="relative flex-1">
           <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-300" size={20} />
-          <input 
+          <input
             type="text" placeholder="Search by name or SKU..."
             className="w-full pl-14 pr-8 py-5 bg-white rounded-3xl border-none shadow-sm focus:ring-2 focus:ring-blue-500/20 font-bold transition-all"
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
         <div className="relative min-w-[200px]">
-          <select 
+          <select
             onChange={(e) => setSelectedCategory(e.target.value)}
             className="w-full pl-6 pr-12 py-5 bg-white appearance-none rounded-3xl border-none shadow-sm font-black text-sm text-slate-600 cursor-pointer uppercase tracking-tighter"
           >
@@ -134,7 +214,7 @@ const Inventory = () => {
                   <td className="p-8">
                     {product.stock <= 0 ? (
                       <div className="flex items-center gap-2 text-rose-500 font-black text-xs uppercase tracking-tighter">
-                        <Ban size={14}/> Depleted
+                        <Ban size={14} /> Depleted
                       </div>
                     ) : (
                       <div className="space-y-2">
@@ -143,8 +223,8 @@ const Inventory = () => {
                           <div className={`w-2 h-2 rounded-full ${product.stock < 5 ? 'bg-amber-500 animate-pulse' : 'bg-green-500'}`}></div>
                         </div>
                         <div className="w-32 h-1 bg-slate-100 rounded-full overflow-hidden">
-                          <div 
-                            className={`h-full ${product.stock < 5 ? 'bg-amber-500' : 'bg-blue-600'}`} 
+                          <div
+                            className={`h-full ${product.stock < 5 ? 'bg-amber-500' : 'bg-blue-600'}`}
                             style={{ width: `${Math.min((product.stock / 50) * 100, 100)}%` }}
                           ></div>
                         </div>
@@ -178,41 +258,81 @@ const Inventory = () => {
               </div>
               <button onClick={() => setEditingProduct(null)} className="p-4 bg-white text-slate-400 hover:text-rose-500 rounded-2xl shadow-sm transition-all"><X size={24} /></button>
             </div>
-            
+
             <form onSubmit={handleUpdate} className="p-10 space-y-6">
               <div className="grid grid-cols-2 gap-6">
-                
+
                 {/* Full Width Fields */}
                 <div className="col-span-2 space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Tag size={12}/> Product Name</label>
-                  <input type="text" value={editFormData.name} onChange={(e) => setEditFormData({...editFormData, name: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-blue-500/20 font-bold" required />
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Tag size={12} /> Product Name</label>
+                  <input type="text" value={editFormData.name} onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })} className="w-full p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-blue-500/20 font-bold" required />
+                  {editErrors.name && (
+                    <p className="text-red-500 text-xs font-semibold mt-1">
+                      {editErrors.name}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Layers size={12}/> Category</label>
-                  <select value={editFormData.category} onChange={(e) => setEditFormData({...editFormData, category: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold text-sm">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Layers size={12} /> Category</label>
+                  <select value={editFormData.category} onChange={(e) => setEditFormData({ ...editFormData, category: e.target.value })} className="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold text-sm">
                     {categories.filter(c => c !== "All").map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
+                  {editErrors.category && (
+                    <p className="text-red-500 text-xs font-semibold mt-1">
+                      {editErrors.category}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Barcode size={12}/> SKU/Barcode</label>
-                  <input type="text" value={editFormData.sku} onChange={(e) => setEditFormData({...editFormData, sku: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl border-none font-mono font-bold" required />
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Barcode size={12} /> SKU/Barcode</label>
+                  <input type="text" value={editFormData.sku} onChange={(e) => setEditFormData({ ...editFormData, sku: e.target.value })} className="w-full p-4 bg-slate-50 rounded-2xl border-none font-mono font-bold" required />
+                  {editErrors.sku && (
+                    <p className="text-red-500 text-xs font-semibold mt-1">
+                      {editErrors.sku}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><DollarSign size={12}/> Cost Price</label>
-                  <input type="number" step="0.01" value={editFormData.costPrice} onChange={(e) => setEditFormData({...editFormData, costPrice: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold" required />
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><DollarSign size={12} /> Cost Price</label>
+                  <input type="number" step="0.01" min={0} value={editFormData.costPrice} onChange={(e) => setEditFormData({ ...editFormData, costPrice: e.target.value })} className="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold" required />
+                  {editErrors.costPrice && (
+                    <p className="text-red-500 text-xs font-semibold mt-1">
+                      {editErrors.costPrice}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-green-600 uppercase tracking-widest ml-1 flex items-center gap-2"><DollarSign size={12}/> Selling Price</label>
-                  <input type="number" step="0.01" value={editFormData.sellingPrice} onChange={(e) => setEditFormData({...editFormData, sellingPrice: e.target.value})} className="w-full p-4 bg-green-50 text-green-700 rounded-2xl border-none font-black" required />
+                  <label className="text-[10px] font-black text-green-600 uppercase tracking-widest ml-1 flex items-center gap-2"><DollarSign size={12} /> Selling Price</label>
+                  <input type="number" step="0.01" min={0} value={editFormData.sellingPrice} onChange={(e) => setEditFormData({ ...editFormData, sellingPrice: e.target.value })} className="w-full p-4 bg-green-50 text-green-700 rounded-2xl border-none font-black" required />
+                  {editErrors.sellingPrice && (
+                    <p className="text-red-500 text-xs font-semibold mt-1">
+                      {editErrors.sellingPrice}
+                    </p>
+                  )}
                 </div>
 
                 <div className="col-span-2 space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Current Inventory Count</label>
-                  <input type="number" value={editFormData.stock} onChange={(e) => setEditFormData({...editFormData, stock: e.target.value})} className="w-full p-5 bg-slate-900 text-white rounded-2xl border-none font-black text-2xl" required />
+                  <input type="number" min={0} value={editFormData.stock} onChange={(e) => setEditFormData({ ...editFormData, stock: e.target.value })} className="w-full p-5 bg-slate-900 text-white rounded-2xl border-none font-black text-2xl" required />
+                  {editErrors.stock && (
+                    <p className="text-red-500 text-xs font-semibold mt-1">
+                      {editErrors.stock}
+                    </p>
+                  )}
+                </div>
+
+                <div className="col-span-2 space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Notify Quantity</label>
+                  <input type="number" min={0} value={editFormData.notifyQuantity} onChange={(e) => setEditFormData({ ...editFormData, notifyQuantity: e.target.value })} className="w-full p-5 bg-slate-900 text-white rounded-2xl border-none font-black text-2xl" required />
+                  {editErrors.notifyQuantity && (
+                    <p className="text-red-500 text-xs font-semibold mt-1">
+                      {editErrors.notifyQuantity}
+                    </p>
+                  )}
                 </div>
 
               </div>

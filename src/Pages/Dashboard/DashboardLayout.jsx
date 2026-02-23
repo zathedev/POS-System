@@ -1,14 +1,20 @@
 import React, { useState } from "react";
-import { Outlet, Link, useLocation } from "react-router-dom";
+import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import { 
   LayoutDashboard, PackagePlus, Box, 
   Menu, X, LogOut, Settings, 
   Zap, ChevronRight 
 } from "lucide-react";
+import { signOut } from "firebase/auth";
+import { auth } from "../../Config/Firebaseconfig";
+import { useDispatch } from "react-redux";
+import { logout } from '../../Redux/Slice/AuthSlice';
 
 const DashboardLayout = () => {
   const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
+  const dispatch = useDispatch();
+  const navigate = useNavigate();
 
   const navItems = [
     { name: "Overview", path: "/dashboard", icon: <LayoutDashboard size={20} /> },
@@ -17,6 +23,14 @@ const DashboardLayout = () => {
   ];
 
   const isActive = (path) => location.pathname === path;
+
+  const handleLogout = async () => {
+        try {
+            await signOut(auth);
+            dispatch(logout());
+            navigate("/");
+        } catch (error) { console.error("Logout failed", error); }
+    };
 
   return (
     <div className="flex h-screen bg-[#F8FAFC] text-slate-900 font-sans">
@@ -75,7 +89,10 @@ const DashboardLayout = () => {
 
           {/* BOTTOM SECTION */}
           <div className="pt-6 border-t border-slate-100 space-y-2">
-            <button className="flex items-center gap-3 px-4 py-3 w-full text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-2xl transition-all font-bold text-sm">
+            <button 
+              className="flex items-center gap-3 px-4 py-3 w-full text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-2xl transition-all font-bold text-sm"
+              onClick={handleLogout}
+              >
               <LogOut size={20} />
               Logout
             </button>
